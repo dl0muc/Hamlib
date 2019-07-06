@@ -386,6 +386,7 @@
 #define ROT_BACKEND_MEADE "meade"
 #define ROT_MODEL_MEADE ROT_MAKE_MODEL(ROT_MEADE, 1)
 
+
 /**
  *  \def ROT_MODEL_IOPTRON
  *  \brief A macro that returns the model number of the IOPTRON backend.
@@ -397,6 +398,16 @@
 #define ROT_MODEL_IOPTRON ROT_MAKE_MODEL(ROT_IOPTRON, 1)
 
 
+/**
+ *  \def ROT_MODEL_HAMBITS
+ *  \brief A macro that returns the model number of the HAMBITS backend.
+ *
+ *  The HAMBITS backend can be used with the open source, Arduino based
+ *  Rotator controller "HAMBITS rot0r"
+ */
+#define ROT_HAMBITS 20
+#define ROT_BACKEND_HAMBITS "hambits"
+#define ROT_MODEL_HAMBITS ROT_MAKE_MODEL(ROT_HAMBITS, 1)
 
 
 /**
