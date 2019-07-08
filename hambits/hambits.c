@@ -50,40 +50,19 @@ struct hambits_priv_data {
 
 /**
  * Command list:
- * See https://www.meade.com/support/LX200CommandSet.pdf
- * and https://www.meade.com/support/TelescopeProtocol_2010-10.pdf for newer
- * Firmware Versions
+ * 
  *
- * Not the full set of available commands is used, the list here shows
- * only the commands of the telescope used by hamlib
- *
- * All used Commands are supportet by Meade Telescopes with LX-200 protocol
- * (e.g. DS-2000 with Autostar) and should also work with the LX16 and
- * LX200GPS.
- * Tested only with DS-2000 and AutoStar 494 together with Meade 506 i2c to
- * Serial cable. But should also work with other AutoStars and the regular
- * Serial Cable.
- *
- * | Command     | Atribute | Return value | Description              |
- * --------------------------------------------------------------------
- * | :Me#        | -        | -            | Moves telescope east     |
- * | :Mn#        | -        | -            | Moves telescope north    |
- * | :Ms#        | -        | -            | Moves telescope south    |
- * | :Mw#        | -        | -            | Moves telescope west     |
- * | :AL#        | -        | -            | Set to Land mode         |
- * | :Sz DDD*MM# | D,M      | 1' == OK     | Set Target azimuth       |
- * | :SasDD*MM#  | s,D,M    | 1' == OK     | Set Target elevation     |
- * | :Mw#        | -        | -            | Moves telescope west     |
- * | :Q#         | -        | -            | Halt all slewing         |
- * | :SoDD#      | D        | '1' == OK    | Set minimal elevation    |
- * | :ShDD#      | D        | '1' == OK    | Set maximal elevation    |
- * | :MA#        | -        | '0' == OK    | GoTo Target              |
- * | :D#         | -        | 0x7F == YES  | Check if active movement |
+ * | Command       | Atribute | Return value     | Description                 |
+ * -----------------------------------------------------------------------------
+ * | #setazDDD.dd; | D        | '1' == OK        | Set Target azimuth          |
+ * | #setelDDD.dd; | D        | '1' == OK        | Set Target elevation        |
+ * | #getpos;      | -        | #DDD.dd;#DDD.dd; | Get position az, el         |
+ * | #stop;        | -        | '1' == OK        | Stop all movement and brake |
  *
  */
 
 /**
- * meade_transaction
+ * hambits_transaction
  *
  * cmdstr - Command to be sent to the rig.
  * data - Buffer for reply string.  Can be NULL, indicating that no reply is
@@ -181,9 +160,8 @@ static int hambits_open(ROT *rot)
 {
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  /* Set Telescope to Land alignment mode to deactivate sloping */
-  /* Allow 0-90 Degree Elevation */
-  return hambits_transaction(rot, ":AL#:So00#:Sh90#" , NULL, 0, 0);
+  /* Nothing to do here yet */
+  return RIG_OK;
 }
 
 /*
@@ -208,60 +186,38 @@ static int hambits_set_position(ROT *rot, azimuth_t az, elevation_t el)
   char cmd_str[BUFSIZE];
   char return_str[BUFSIZE];
   size_t return_str_size;
-  float az_degrees, az_minutes, el_degrees, el_minutes;
-
+  
   rig_debug(RIG_DEBUG_VERBOSE,"%s called: %.2f %.2f\n", __func__,
     az, el);
-
-  az_degrees = floor(az);
-  az_minutes = (az - az_degrees) * 60;
-  el_degrees = floor(el);
-  el_minutes = (el - el_degrees) * 60;
-
-  /* Check if there is an active movement, if yes, stop it if
-     new target is more than 5 Degrees away from old target
-     if not, don't accept new target*/
-  hambits_transaction(rot, ":D#", return_str, &return_str_size, 1);
-  if(return_str_size > 0 && return_str[0] == 0x7F) {
-    if(fabsf(az - priv->target_az) > 5 || fabsf(el - priv->target_el) > 5)
-      hambits_transaction(rot, ":Q#", NULL, 0, 0);
-    else
-      return RIG_OK;
-  }
 
   priv->target_az = az;
   priv->target_el = el;
 
-  num_sprintf(cmd_str, ":Sz %03.0f*%02.0f#:Sa+%02.0f*%02.0f#:MA#",
-              az_degrees, az_minutes, el_degrees, el_minutes);
+  num_sprintf(cmd_str, "#setaz%03.2f;#setel%03.2f;",
+              az, el);
 
-  hambits_transaction(rot, cmd_str, return_str, &return_str_size, 3);
+  hambits_transaction(rot, cmd_str, return_str, &return_str_size, 2);
   /* '1' == Azimuth accepted '1' == Elevation accepted '0' == No error */
-  if(return_str_size > 0 && strstr(return_str , "110") != NULL)
+  if(return_str_size > 0 && strstr(return_str , "11") != NULL)
     return RIG_OK;
   else
     return RIG_EINVAL;
 }
 
 /*
- * Get position of rotor, simulating slow rotation
+ * Get position of rotor
  */
 static int hambits_get_position(ROT *rot, azimuth_t *az, elevation_t *el)
 {
   char return_str[BUFSIZE];
   size_t return_str_size;
-  int az_degree, az_minutes, el_degree, el_minutes;
-
+  
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  hambits_transaction(rot, ":GZ#:GA#", return_str, &return_str_size, 14);
-  if(return_str_size > 13 && return_str[return_str_size-1] == '#') {  /* '#' == EOS */
-    az_degree = strtol(return_str, NULL, 10);
-    az_minutes = strtol(return_str + 4, NULL, 10);
-    el_degree = strtol(return_str + 8, NULL, 10);
-    el_minutes = strtol(return_str + 11, NULL, 10);
-    *az = dmmm2dec(az_degree, az_minutes, 0);
-    *el = dmmm2dec(el_degree, el_minutes, 0);
+  hambits_transaction(rot, "#getpos;", return_str, &return_str_size, 17);
+  if(return_str_size > 13 && return_str[return_str_size-1] == ';') {  /* ';' == EOS */
+    *az = strtof(return_str + 1, NULL);
+    *el = strtof(return_str + 9, NULL);
     return RIG_OK;
   }
   else {
@@ -280,7 +236,7 @@ static int hambits_stop(ROT *rot)
 
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  hambits_transaction(rot, ":Q#", NULL, 0, 0);
+  hambits_transaction(rot, "#stop;", NULL, 0, 0);
   hambits_get_position(rot, &az, &el);
 
   priv->target_az = priv->az = az;
@@ -297,9 +253,7 @@ static int hambits_park(ROT *rot)
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
   /* Assume home is 0,0 */
-  hambits_set_position(rot, 0, 0);
-
-  return RIG_OK;
+  return hambits_set_position(rot, 0, 0);
 }
 
 /*
@@ -308,9 +262,8 @@ static int hambits_park(ROT *rot)
 static int hambits_reset(ROT *rot, rot_reset_t reset)
 {
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
-  hambits_park(rot);
-
-  return RIG_OK;
+  
+  return hambits_park(rot);
 }
 
 /*
@@ -351,7 +304,7 @@ static const char *hambits_get_info(ROT *rot)
 }
 
 /*
- * Meade telescope rotator capabilities.
+ * Hambits r0tor capabilities.
  */
 
 const struct rot_caps hambits_caps = {
