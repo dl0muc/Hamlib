@@ -52,12 +52,12 @@ struct hambits_priv_data {
  * Command list:
  * 
  *
- * | Command       | Atribute | Return value     | Description                 |
+ * | Command      | Atribute | Return value     | Description                 |
  * -----------------------------------------------------------------------------
- * | #setazDDD.dd; | D        | '1' == OK        | Set Target azimuth          |
- * | #setelDDD.dd; | D        | '1' == OK        | Set Target elevation        |
- * | #getpos;      | -        | #DDD.dd;#DDD.dd; | Get position az, el         |
- * | #stop;        | -        | '1' == OK        | Stop all movement and brake |
+ * | setazDDD.dd; | D        | '1' == OK        | Set Target azimuth          |
+ * | setelDDD.dd; | D        | '1' == OK        | Set Target elevation        |
+ * | getpos;      | -        | DDD.dd;DDD.dd;   | Get position az, el         |
+ * | stop;        | -        | '1' == OK        | Stop all movement and brake |
  *
  */
 
@@ -95,7 +95,7 @@ static int hambits_transaction (ROT *rot, const char *cmdstr,
     }
 
     /* Not all commands will send a return value, so use data = NULL if no
-       return value is expected, Strings end with '#' */
+       return value is expected, Strings end with ';' */
     if (data != NULL) {
       memset(data,0,BUFSIZE);
       *data_len = read_string(&rs->rotport, data, expected_return_length + 1, "\n", strlen("\n"));
@@ -171,7 +171,7 @@ static int hambits_close(ROT *rot)
 {
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
   /* Stop all Movement */
-  return hambits_transaction(rot, ":Q#" , NULL, 0, 0);
+  return hambits_transaction(rot, "stop;" , NULL, 0, 0);
 }
 
 /*
@@ -193,12 +193,14 @@ static int hambits_set_position(ROT *rot, azimuth_t az, elevation_t el)
   priv->target_az = az;
   priv->target_el = el;
 
-  num_sprintf(cmd_str, "#setaz%03.2f;#setel%03.2f;",
+  num_sprintf(cmd_str, "setaz%03.2f;setel%03.2f;",
               az, el);
+  rig_debug(RIG_DEBUG_VERBOSE,"Send String: %s", cmd_str);
 
   hambits_transaction(rot, cmd_str, return_str, &return_str_size, 2);
   /* '1' == Azimuth accepted '1' == Elevation accepted '0' == No error */
-  if(return_str_size > 0 && strstr(return_str , "11") != NULL)
+  rig_debug(RIG_DEBUG_VERBOSE,"Return String: %s", return_str);
+  if(return_str_size > 0 /*&& strstr(return_str , "11") != NULL*/)
     return RIG_OK;
   else
     return RIG_EINVAL;
@@ -211,13 +213,16 @@ static int hambits_get_position(ROT *rot, azimuth_t *az, elevation_t *el)
 {
   char return_str[BUFSIZE];
   size_t return_str_size;
-  
+  char* pEnd;
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  hambits_transaction(rot, "#getpos;", return_str, &return_str_size, 17);
-  if(return_str_size > 13 && return_str[return_str_size-1] == ';') {  /* ';' == EOS */
-    *az = strtof(return_str + 1, NULL);
-    *el = strtof(return_str + 9, NULL);
+  hambits_transaction(rot, "getpos;", return_str, &return_str_size, 15);
+  rig_debug(RIG_DEBUG_VERBOSE,"Returnstring: %s", return_str);
+  if(return_str_size > 8) {  /* ';' == EOS */
+    *az = strtof(return_str, &pEnd);
+    *el = strtof(pEnd + 1, NULL);
+    rig_debug(RIG_DEBUG_VERBOSE,"%s called: %.2f %.2f\n", __func__,
+    *az, *el);
     return RIG_OK;
   }
   else {
@@ -236,7 +241,7 @@ static int hambits_stop(ROT *rot)
 
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  hambits_transaction(rot, "#stop;", NULL, 0, 0);
+  hambits_transaction(rot, "stop;", NULL, 0, 0);
   hambits_get_position(rot, &az, &el);
 
   priv->target_az = priv->az = az;
@@ -317,8 +322,8 @@ const struct rot_caps hambits_caps = {
   .rot_type =         ROT_TYPE_AZEL,
 
   .port_type =        RIG_PORT_SERIAL,
-  .serial_rate_min =  9600,
-  .serial_rate_max =  9600,
+  .serial_rate_min =  19200,
+  .serial_rate_max =  19200,
   .serial_data_bits = 8,
   .serial_stop_bits = 1,
   .serial_parity =    RIG_PARITY_NONE,
