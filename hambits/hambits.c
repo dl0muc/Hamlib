@@ -195,12 +195,12 @@ static int hambits_set_position(ROT *rot, azimuth_t az, elevation_t el)
 
   num_sprintf(cmd_str, "setaz%03.2f;setel%03.2f;",
               az, el);
-  rig_debug(RIG_DEBUG_VERBOSE,"Send String: %s", cmd_str);
 
   hambits_transaction(rot, cmd_str, return_str, &return_str_size, 2);
-  /* '1' == Azimuth accepted '1' == Elevation accepted '0' == No error */
-  rig_debug(RIG_DEBUG_VERBOSE,"Return String: %s", return_str);
-  if(return_str_size > 0 /*&& strstr(return_str , "11") != NULL*/)
+  /* '1' == Azimuth accepted '1' == Elevation accepted  */
+  rig_debug(RIG_DEBUG_VERBOSE,"Return String: %s\n", return_str);
+
+  if(return_str_size > 0 && strstr(return_str , "11") != NULL)
     return RIG_OK;
   else
     return RIG_EINVAL;
@@ -217,11 +217,11 @@ static int hambits_get_position(ROT *rot, azimuth_t *az, elevation_t *el)
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
   hambits_transaction(rot, "getpos;", return_str, &return_str_size, 15);
-  rig_debug(RIG_DEBUG_VERBOSE,"Returnstring: %s", return_str);
+
   if(return_str_size > 8) {  /* ';' == EOS */
     *az = strtof(return_str, &pEnd);
     *el = strtof(pEnd + 1, NULL);
-    rig_debug(RIG_DEBUG_VERBOSE,"%s called: %.2f %.2f\n", __func__,
+    rig_debug(RIG_DEBUG_VERBOSE,"Return Values: AZ: %.2f EL: %.2f\n",
     *az, *el);
     return RIG_OK;
   }
@@ -241,13 +241,15 @@ static int hambits_stop(ROT *rot)
 
   rig_debug(RIG_DEBUG_VERBOSE, "%s called\n", __func__);
 
-  hambits_transaction(rot, "stop;", NULL, 0, 0);
-  hambits_get_position(rot, &az, &el);
+  if(hambits_transaction(rot, "stop;", NULL, 0, 0) != RIG_OK)
+    return RIG_EINVAL;
 
-  priv->target_az = priv->az = az;
-  priv->target_el = priv->el = el;
-
-  return RIG_OK;
+  if(hambits_get_position(rot, &az, &el) == RIG_OK) {
+    priv->target_az = priv->az = az;
+    priv->target_el = priv->el = el;
+    return RIG_OK;
+  }
+  return RIG_EINVAL;
 }
 
 /*
@@ -283,16 +285,16 @@ static int hambits_move(ROT *rot, int direction, int speed)
 
   switch(direction) {
   case ROT_MOVE_UP:
-    return hambits_set_position(rot, priv->target_az, 90);
+    return hambits_set_position(rot, priv->target_az, 180);
 
   case ROT_MOVE_DOWN:
     return hambits_set_position(rot, priv->target_az, 0);
 
   case ROT_MOVE_CCW:
-    return hambits_set_position(rot, -180, priv->target_el);
+    return hambits_set_position(rot, 0, priv->target_el);
 
   case ROT_MOVE_CW:
-    return hambits_set_position(rot, 180, priv->target_el);
+    return hambits_set_position(rot, 360, priv->target_el);
 
   default:
     return -RIG_EINVAL;
@@ -329,7 +331,7 @@ const struct rot_caps hambits_caps = {
   .serial_parity =    RIG_PARITY_NONE,
   .serial_handshake = RIG_HANDSHAKE_NONE,
   .write_delay =      0,
-  .post_write_delay = 200,
+  .post_write_delay = 0,
   .timeout =          400,
   .retry =            5,
 
